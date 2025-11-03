@@ -79,9 +79,9 @@ Each candidate summary is scored along three complementary dimensions:
 | Factual Faithfulness | SummaC / QAFactEval | Consistency with source post         |
 
 These scores are aggregated into a weighted sum:  
-$$
-S = 0.5 \times \text{ROUGE} + 0.3 \times \text{BERTScore} + 0.2 \times \text{Factuality}
-$$
+
+$S = 0.5 \times \text{ROUGE} + 0.3 \times \text{BERTScore} + 0.2 \times \text{Factuality}$
+
 The highest-scoring candidate is marked as **chosen**, and the lowest as **rejected**, provided the score gap ≥ 0.05.  
 Pairs with minimal difference are discarded to avoid label noise.
 
@@ -96,12 +96,9 @@ Thus, metric-based pairs serve as a valid approximation of human preferences whe
 
 ### Step 4 — Direct Preference Optimization (DPO)
 We train a preference-aligned model using the DPO loss:
-$$
-L_{\text{DPO}} = -\log \sigma\Big(\beta \Big[
-\log \pi_\theta(y_c|x) - \log \pi_\theta(y_r|x)
-- \log \pi_{\text{ref}}(y_c|x) + \log \pi_{\text{ref}}(y_r|x)
-\Big]\Big)
-$$
+
+$L_{\mathrm{DPO}} = -\log \sigma(\beta [\log \pi_\theta(y_c|x) - \log \pi_\theta(y_r|x) - \log \pi_{\mathrm{ref}}(y_c|x) + \log \pi_{\mathrm{ref}}(y_r|x)])$
+
 where β controls the regularization strength and  π_ref  is the frozen baseline model.  
 The objective encourages the model to increase the relative likelihood of preferred summaries without explicit reward modeling or reinforcement learning.
 
