@@ -102,7 +102,7 @@ L_{\text{DPO}} = -\log \sigma\Big(\beta \Big[
 - \log \pi_{\text{ref}}(y_c|x) + \log \pi_{\text{ref}}(y_r|x)
 \Big]\Big)
 $$
-where β controls the regularization strength and \(\pi_{\text{ref}}\) is the frozen baseline model.  
+where β controls the regularization strength and  π_ref  is the frozen baseline model.  
 The objective encourages the model to increase the relative likelihood of preferred summaries without explicit reward modeling or reinforcement learning.
 
 ---
