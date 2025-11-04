@@ -25,6 +25,7 @@ This work also investigates the reliability of automatic preference generation a
 5. **Reproducible and Scalable Pipeline**  
    Provide an open, reproducible implementation of SFT → Candidate Generation → Preference Construction → DPO → Evaluation, facilitating future research on automatic alignment.
 
+
 ---
 
 ## Dataset
@@ -34,19 +35,17 @@ Each entry includes:
 - **`prompt`**: full Reddit post with title, body, and subreddit metadata;  
 - **`completion`**: TL;DR summary written by the user.
 
-The dataset reflects the informal, emotional, and stylistically varied nature of Reddit writing.  
-It is ideal for testing how preference alignment behaves on non-news, non-curated text.
-
-### Data Processing
-- Remove incomplete or extremely short posts and summaries.  
-- Normalize line breaks and remove redundant “TL;DR:” tokens.  
-- Preserve subreddit and title information to maintain contextual richness.  
-- Tokenize and truncate to manageable sequence lengths (e.g., ≤1024 input tokens).  
-- Split into training (117k), validation (6.4k), and test (6.5k) subsets.
 
 ---
 
 ## Methodology
+
+### Step 0 - Preprocessing
+
+The raw Reddit TL;DR dataset was parsed into structured fields and cleaned by removing noise, normalizing demographic tags (e.g., [F/22] → <GENDER_FEMALE> <AGE_22>), and filtering incomplete or duplicate entries.
+
+Basic statistics such as length and compression ratio were computed, and the data were split into train (99,929), validation (5,570), and test (5,577) sets.
+The final processed dataset (tldr_cleaned) serves as the foundation for model fine-tuning.
 
 ### Step 1 — Supervised Fine-Tuning (SFT)
 We begin by fine-tuning an encoder–decoder model (`google/flan-t5-base`) on the cleaned TL;DR pairs.  
@@ -61,9 +60,9 @@ It learns to produce concise summaries but may not align with human preference i
 
 ### Step 2 — Candidate Generation
 For each Reddit post, the SFT model generates multiple candidate summaries using diverse decoding parameters:
-- Beam search (`num_beams = 4`)
-- Nucleus sampling (`top_p = 0.9–0.95`)
-- Temperature scaling (`T = 0.7–1.0`)
+- Beam search 
+- Nucleus sampling 
+- Temperature scaling 
 
 This ensures diversity among outputs, producing both strong and weak candidates for comparison.
 
@@ -78,7 +77,8 @@ Each candidate summary is scored along three complementary dimensions:
 | Semantic Quality     | BERTScore           | Semantic similarity to reference     |
 | Factual Faithfulness | SummaC / QAFactEval | Consistency with source post         |
 
-These scores are aggregated into a weighted sum:  
+
+We propose a simple weighted aggregation of ROUGE, BERTScore, and factual consistency metrics as an automatic proxy for human preference, with empirically motivated weights (0.5, 0.3, 0.2).
 
 $S = 0.5 \times \text{ROUGE} + 0.3 \times \text{BERTScore} + 0.2 \times \text{Factuality}$
 
@@ -88,7 +88,8 @@ Pairs with minimal difference are discarded to avoid label noise.
 ---
 
 ### Why Automatic Preferences Are Reasonable
-Previous studies (Zhang et al., 2020; Laban et al., 2021; Kryscinski et al., 2022) show that these metrics correlate strongly (ρ ≈ 0.6–0.8) with human evaluation of summary quality.  
+Prior studies (Zhang et al., 2020; Laban et al., 2021; Kryscinski et al., 2022; Ye et al., 2024) have demonstrated that automatic metrics such as ROUGE, BERTScore, and similarity-based factuality scores correlate strongly (ρ ≈ 0.6–0.8) with human judgments of summary quality and factual consistency.
+
 Since DPO relies only on *relative* ranking, not absolute reward values, even noisy but directionally correct preference pairs can drive effective optimization.  
 Thus, metric-based pairs serve as a valid approximation of human preferences when manual labels are unavailable.
 
@@ -159,9 +160,20 @@ Even if the automatic ranking is imperfect, DPO remains robust as long as >50% o
 ---
 
 ## References
-- Rafailov, R. et al. (2023). *Direct Preference Optimization: Your Language Model is Secretly a Reward Model.* arXiv:2305.18290.  
-- Laban, P. et al. (2021). *SummaC: Re-evaluating Summarization Evaluation for Faithfulness.* ACL.  
-- Kryscinski, W. et al. (2022). *Evaluating the Factual Consistency of Abstractive Summaries with QA-based Metrics.* TACL.  
-- Zhang, T. et al. (2020). *BERTScore: Evaluating Text Generation with BERT.* ICLR.  
-- Fabbri, A. et al. (2021). *SummEval: Re-evaluating Automatic Metrics for Summarization.* TACL.  
+- Rafailov, R., Sharma, A., Mitchell, E., Ermon, S., Manning, C. D., & Finn, C. (2023). Direct Preference Optimization: Your Language Model is Secretly a Reward Model. arXiv:2305.18290. 
+arXiv
+
+- Laban, P., Schnabel, T., Bennett, P. N., & Hearst, M. A. (2022). SummaC: Re-Visiting NLI-based Models for Inconsistency Detection in Summarization. TACL. 
+direct.mit.edu
+
+- Fabbri, A. R., Wu, C.-S., Liu, W., & Xiong, C. (2022). QAFactEval: Improved QA-Based Factual Consistency Evaluation for Summarization. NAACL. arXiv:2112.08542. 
+arXiv
+
+- Zhang, T., Kishore, V., Wu, F., Weinberger, K. Q., & Artzi, Y. (2020). BERTScore: Evaluating Text Generation with BERT. ICLR. 
+arXiv
+
+- Fabbri, A., Kryscinski, W., McCann, B., Xiong, C., Socher, R., & Radev, D. (2021). SummEval: Re-evaluating Summarization Evaluation. TACL. 
+aclanthology.org
+
+- Ye, Y. et al. (2024). Using Similarity to Evaluate Factual Consistency in Summaries. arXiv:2409.15090.
 
