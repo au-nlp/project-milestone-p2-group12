@@ -11,19 +11,17 @@ This work also investigates the reliability of automatic preference generation a
 ## Contributions
 
 1. **Automatic Preference Generation Framework**  
-   Develop an unsupervised pipeline that automatically generates preference pairs from model outputs using ROUGE, BERTScore, and factuality metrics.
+   Develop an automatic pipeline that constructs preference pairs from model-generated summaries using ROUGE, BERTScore, and factuality metrics, reducing the need for costly human annotations.
 
 2. **Preference Alignment on User-Generated Text**  
-   Apply DPO to Reddit TL;DR data—informal, emotional, and noisy user content rarely used in alignment studies—to test robustness in real-world conditions.
+   Apply DPO to Reddit TL;DR posts—informal and noisy user-generated content—to evaluate the robustness and generalization of preference alignment in real-world conditions.
 
 3. **Factuality-Aware Evaluation**  
    Integrate factual consistency metrics (SummaC, QAFactEval) into evaluation, quantifying how DPO affects truthfulness and hallucination reduction.
 
 4. **Analysis of Proxy Preference Validity**  
-   Examine whether automatic metrics can reliably approximate human preferences, and propose validation and correction methods.
+   Provide empirical analysis of whether metric-based preferences approximate human judgments, and propose validation and correction methods.
 
-5. **Reproducible and Scalable Pipeline**  
-   Provide an open, reproducible implementation of SFT → Candidate Generation → Preference Construction → DPO → Evaluation, facilitating future research on automatic alignment.
 
 
 ---
@@ -137,6 +135,14 @@ Even if the automatic ranking is imperfect, DPO remains robust as long as >50% o
 
 ---
 
+
+## Expected Outcomes
+- A DPO-aligned summarization model that generates **more factual, concise, and human-aligned TL;DRs** than the baseline.  
+- Quantitative improvements in factual consistency and preference win rate.  
+- An analysis of when automatic preference construction succeeds or fails.  
+- A reproducible open-source pipeline demonstrating **automatic preference alignment** without human annotation.
+
+---
 ## Timeline
 
 | Week  | Task                          | Deliverable                                      |
@@ -150,15 +156,26 @@ Even if the automatic ranking is imperfect, DPO remains robust as long as >50% o
 | **7** | Discussion and integration    | Final README and project presentation            |
 
 ---
+## Team Organization
 
-## Expected Outcomes
-- A DPO-aligned summarization model that generates **more factual, concise, and human-aligned TL;DRs** than the baseline.  
-- Quantitative improvements in factual consistency and preference win rate.  
-- An analysis of when automatic preference construction succeeds or fails.  
-- A reproducible open-source pipeline demonstrating **automatic preference alignment** without human annotation.
+- **Yaning Wen**  
+   Responsible for overall project coordination, system design, and implementation of the core pipeline.  
+  Leads the fine-tuning of the baseline summarization model (SFT), the construction of automatic preference pairs, and the Direct Preference Optimization (DPO) training stage.  
+  Also oversees experiment planning, evaluation design, and integration of results into the final report and presentation.
+
+- **Wei Xiong**  
+  In charge of dataset preparation and quality assurance.  
+  Handles data cleaning, formatting, and preprocessing of the Reddit TL;DR dataset.  
+  Will assist in evaluating candidate summaries and reviewing model outputs for factual consistency.
+
+- **Yunting Wang**  
+  Focused on literature review and documentation.  
+  Responsible for compiling references on summarization evaluation and alignment techniques, and supporting presentation and reporting tasks.  
+  Will also help validate experimental results and contribute to visualization and analysis.
+
+All members will participate in weekly coordination meetings to discuss progress and ensure that milestones are met. 
 
 ---
-
 ## References
 - Rafailov, R., Sharma, A., Mitchell, E., Ermon, S., Manning, C. D., & Finn, C. (2023). Direct Preference Optimization: Your Language Model is Secretly a Reward Model. arXiv:2305.18290. 
 arXiv
