@@ -161,17 +161,17 @@ Even if the automatic ranking is imperfect, DPO remains robust as long as >50% o
 - **Yaning Wen**  
    Responsible for overall project coordination, system design, and implementation of the core pipeline.  
   Leads the fine-tuning of the baseline summarization model (SFT), the construction of automatic preference pairs, and the Direct Preference Optimization (DPO) training stage.  
-  Also oversees experiment planning, evaluation design, and integration of results into the final report and presentation.
+  Also oversees experiment planning, evaluation design, and integration of results into the final report.
 
 - **Wei Xiong**  
-  In charge of dataset preparation and quality assurance.  
-  Handles data cleaning, formatting, and preprocessing of the Reddit TL;DR dataset.  
-  Will assist in evaluating candidate summaries and reviewing model outputs for factual consistency.
+  Responsible for model training and optimization.  
+  Focuses on implementing fine-tuning procedures, managing training configurations, conducting hyperparameter tuning, and monitoring performance under the coordination of the teamembers.  
+  Contributes to evaluation and internal testing of trained models.
 
 - **Yunting Wang**  
-  Focused on literature review and documentation.  
-  Responsible for compiling references on summarization evaluation and alignment techniques, and supporting presentation and reporting tasks.  
-  Will also help validate experimental results and contribute to visualization and analysis.
+  Provides comprehensive project assistance and coordination support.  
+  Assists other members in tasks such as dataset handling, metric computation, and result verification.  
+  Contributes to documentation, organization of experiment records, maintenance of the repository, and overall workflow coordination.  
 
 All members will participate in weekly coordination meetings to discuss progress and ensure that milestones are met. 
 
