@@ -1,0 +1,25 @@
+NLP_Project_2025Fall/
+│
+├─ data/
+│   ├─ tldr_cleaned/        # 已处理好的 DatasetDict（来自 main.ipynb）
+│   ├─ candidates/              # SFT 生成的候选摘要（Step 2）
+│   ├─ preferences/             # 自动生成的偏好对 (chosen / rejected)（Step 3）
+│   └─ metrics/                 # 各类评估结果（可选）
+│
+├─ models/
+│   ├─ sft/                     # SFT 模型 checkpoint
+│   └─ dpo/                     # DPO 模型 checkpoint
+│
+├─ src/
+│   ├─ __init__.py
+│   ├─ data_utils.py            # 数据加载 + tokenize（适配 post_for_model + gold_tldr）
+│   ├─ decoding_utils.py        # 用于生成候选摘要（beam + sampling）
+│   ├─ metric_utils.py          # ROUGE, BERTScore, SummaC, factuality, 综合评分
+│   ├─ eval_utils.py            # 统一评估（用于 eval_model.py）
+│   └─ logging_utils.py         # （可选）统一打印/保存日志
+│
+├─ train_sft.py                 # Step 1：训练 SFT
+├─ generate_candidates.py       # Step 2：用 SFT 生成候选摘要
+├─ build_preference_pairs.py    # Step 3：自动构造偏好对（chosen / rejected）
+├─ train_dpo.py                 # Step 4：训练 DPO
+└─ eval_model.py                # Step 5：评估任意模型（SFT / DPO）
