@@ -1,25 +1,33 @@
 NLP_Project_2025Fall/
 │
-├─ data/
-│   ├─ tldr_cleaned/        # 已处理好的 DatasetDict（来自 main.ipynb）
-│   ├─ candidates/              # SFT 生成的候选摘要（Step 2）
-│   ├─ preferences/             # 自动生成的偏好对 (chosen / rejected)（Step 3）
-│   └─ metrics/                 # 各类评估结果（可选）
+├── requirements.txt            # 项目依赖 (transformers, trl, evaluate, openai, etc.)
+├── README.md                   # 项目文档
 │
-├─ models/
-│   ├─ sft/                     # SFT 模型 checkpoint
-│   └─ dpo/                     # DPO 模型 checkpoint
+├── data/                       # 数据存放区
+│   ├── tldr_cleaned/           # [Step 0] 预处理好的 DatasetDict (Train/Val/Test)
+│   ├── candidates/             # [Step 2] 生成的中间结果
+│   │   ├── candidates_sft.json
+│   │   ├── candidates_bart.json
+│   │   └── candidates_pegasus.json
+│   ├── calibration/            # [Step 3] 权重校准过程数据
+│   │   └── labeled_pairs_50.json
+│   └── preferences/            # [Step 4] 最终用于 DPO 的混合数据集
+│       └── dpo_mixed_data.json
 │
-├─ src/
-│   ├─ __init__.py
-│   ├─ data_utils.py            # 数据加载 + tokenize（适配 post_for_model + gold_tldr）
-│   ├─ decoding_utils.py        # 用于生成候选摘要（beam + sampling）
-│   ├─ metric_utils.py          # ROUGE, BERTScore, SummaC, factuality, 综合评分
-│   ├─ eval_utils.py            # 统一评估（用于 eval_model.py）
-│   └─ logging_utils.py         # （可选）统一打印/保存日志
+├── models/                     # 模型保存区
+│   ├── sft/                    # [Step 1] 产出的 SFT 模型
+│   └── dpo/                    # [Step 5] 产出的 DPO 模型
 │
-├─ train_sft.py                 # Step 1：训练 SFT
-├─ generate_candidates.py       # Step 2：用 SFT 生成候选摘要
-├─ build_preference_pairs.py    # Step 3：自动构造偏好对（chosen / rejected）
-├─ train_dpo.py                 # Step 4：训练 DPO
-└─ eval_model.py                # Step 5：评估任意模型（SFT / DPO）
+├── src/                        # 核心工具包 (不可执行，供脚本调用)
+│   ├── __init__.py
+│   ├── data_loader.py          # 数据加载与 Tokenization 逻辑
+│   ├── decoding_utils.py       # 定义 Beam Search / Sampling 等生成策略
+│   └── metric_utils.py         # 封装 ROUGE, BERTScore, SummaC 计算逻辑
+│
+├── scripts/                    # (可选)
+│
+├── 1_train_sft.py              # [执行脚本] Step 1: 训练 SFT 基座
+├── 2_generate_candidates.py    # [执行脚本] Step 2: 调用 SFT/BART/Pegasus 生成候选
+├── 3_calibrate_weights.py      # [执行脚本] Step 3: 采样 50 条 -> 调用 GPT-4 -> 拟合公式权重
+├── 4_build_dataset.py          # [执行脚本] Step 4: 用拟合好的公式构建混合偏好对
+└── 5_train_dpo.py              # [执行脚本] Step 5: 训练 DPO 模型
