@@ -40,9 +40,9 @@ def main():
         # 核心超参
         learning_rate=5e-5,
         num_train_epochs=3,
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
-        gradient_accumulation_steps=2,  # 显存不够可调大此值，减小 batch_size
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=2,
+        gradient_accumulation_steps=4,  # 显存不够可调大此值，减小 batch_size
         weight_decay=0.01,
 
         # 评估与保存策略 (按 steps 保存，方便断点续训)
@@ -55,7 +55,7 @@ def main():
 
         # 杂项
         predict_with_generate=True,  # 评估时生成摘要计算 ROUGE
-        fp16=torch.cuda.is_available(),  # 混合精度
+        bf16=torch.cuda.is_bf16_supported(),  # 如果支持则启用 bf16
         logging_dir=LOG_DIR,
         logging_steps=100,
         report_to="tensorboard",
