@@ -82,7 +82,7 @@ def main():
         print(f"\n[Sample {i+1}]")
         print("-" * 20)
         # 打印部分原文（太长就截断）
-        print(f"Input Post (Truncated):\n{input_text[:300]}...") 
+        print(f"Input Post:\n{input_text}") 
         print("-" * 20)
         print(f"Human Reference:\n{gold_summary}")
         print("-" * 20)
