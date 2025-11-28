@@ -7,7 +7,7 @@ def main():
     # ==========================================
     # 配置
     # ==========================================
-    MODEL_PATH = "models/sft_1/checkpoint" 
+    MODEL_PATH = "models/sft_1/checkpoint/checkpoint-249840"
     
     # 数据集路径
     DATA_PATH = "data/tldr_cleaned"

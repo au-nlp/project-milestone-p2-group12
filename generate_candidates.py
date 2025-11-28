@@ -14,9 +14,9 @@ from src.decoding_utils import batch_generate
 # 定义要跑的模型列表
 MODELS_CONFIG = [
     # 请确保这个路径下包含 config.json 和 model.safetensors/bin
-    ("sft", "models/sft_1/checkpoint"), 
-    ("bart", "facebook/bart-large-cnn"),
-    ("pegasus", "google/pegasus-xsum")
+    ("sft", "models/sft_1/checkpoint/checkpoint-249840"),
+    # ("bart", "facebook/bart-large-cnn"),
+    # ("pegasus", "google/pegasus-xsum")
 ]
 
 def main():
