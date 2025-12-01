@@ -96,7 +96,6 @@ def load_model_and_tokenizer(
     model.to(device)
     return tokenizer, model, device
 
-
 # ============================================================
 # 3. Dataset loading & preprocessing
 # ============================================================
