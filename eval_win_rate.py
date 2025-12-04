@@ -8,100 +8,166 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_winner(client, post, pred_a, pred_b):
-    # 随机交换顺序
-    is_swapped = random.random() > 0.5
-    s1, s2 = (pred_b, pred_a) if is_swapped else (pred_a, pred_b)
-    
-    # === 严厉版 Prompt ===
-    prompt = f"""
-    You are a critical editor evaluating Reddit TL;DR summaries. 
-    Your goal is to distinguish the better summary, even if the difference is subtle.
-    
-    [Input Post]:
-    {post}
-    
-    [Summary 1]:
-    {s1}
-    
-    [Summary 2]:
-    {s2}
-    
-    [Evaluation Steps]:
-    1. **Factuality Check**: Does either summary contain a hallucination? If yes, it loses immediately.
-    2. **Information Density**: If both are factual, which one conveys the SAME meaning with FEWER words? The more concise one wins.
-    3. **Tone Check**: Which one sounds more like a human Redditor (casual, direct) and less like a robot?
-    4. **Redundancy**: Does one summary repeat information unnecessarily? If so, it loses.
 
-    [Constraints]:
-    - **AVOID TIES**: You must try your best to pick a winner. 
-    - Only output "tie" if the two summaries are semantically IDENTICAL.
-    - If Summary 1 and 2 are very similar, pick the one that is slightly more concise or natural.
-    - But if they are truly equal in quality, output "tie".
-    Return strictly JSON: {{"winner": "1", "reason": "short explanation"}} OR {{"winner": "2", ...}} OR {{"winner": "tie"}}
+def get_winner(client, post, sft_pred, dpo_pred, model: str = "gpt-4-turbo") -> str:
     """
-    
-    try:
-        res = client.chat.completions.create(
-            model="gpt-4-turbo", 
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0 # 保持0，减少随机性
-        )
-        content = res.choices[0].message.content.replace("```json", "").replace("```", "").strip()
-        parsed = json.loads(content)
-        w = str(parsed.get("winner", "")).lower()
-        
-        # 打印理由，方便你分析（可选）
-        # print(f"Reason: {parsed.get('reason')}")
+    用 GPT-4 对比一对 (SFT, DPO) 摘要，返回 "SFT" / "DPO" / "tie"。
 
-        if "tie" in w: return "tie"
-        
-        # 还原位置
+    为避免位置偏差，会随机决定哪一个作为 Summary 1 / Summary 2，
+    然后根据返回的 winner 和 is_swapped 还原到 SFT / DPO 的胜负关系。
+    """
+    # 随机交换顺序：True 表示 DPO 在前，False 表示 SFT 在前
+    is_swapped = random.random() > 0.5
+    if is_swapped:
+        s1, s2 = dpo_pred, sft_pred
+    else:
+        s1, s2 = sft_pred, dpo_pred
+
+    system_prompt = (
+        "You are a strict evaluator of Reddit TL;DR summaries. "
+        "Your job is to decide which of two summaries is better for a given post."
+    )
+
+    user_prompt = f"""
+You will be given a Reddit post and two candidate TL;DR summaries (Summary 1 and Summary 2).
+
+[Original Post]
+{post}
+
+[Summary 1]
+{s1}
+
+[Summary 2]
+{s2}
+
+Evaluate the summaries in the following order of importance:
+1. Factuality (CRITICAL): A summary must not hallucinate or contradict the post.
+2. Coverage and relevance: Prefer the summary that captures the main point or conflict.
+3. Conciseness: If both are factual and relevant, prefer the shorter one.
+4. Style: Prefer the one that sounds like a natural Reddit TL;DR (informal but clear).
+
+Constraints:
+- Avoid ties. Only output "tie" if the two summaries are essentially identical in content and quality.
+- If they are very similar, break the tie in favor of the more concise or more natural summary.
+
+Respond STRICTLY in JSON format:
+
+{{"winner": "1" | "2" | "tie", "reason": "short explanation"}}
+"""
+
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+        )
+        content = resp.choices[0].message.content
+
+        # 处理可能的 ```json 包裹
+        if "```" in content:
+            content = content.replace("```json", "").replace("```", "")
+        parsed = json.loads(content.strip())
+
+        w = str(parsed.get("winner", "")).strip().lower()
+        if w not in {"1", "2", "tie"}:
+            raise ValueError(f"Unexpected winner value: {w}")
+
+        # 先处理平局
+        if w == "tie":
+            return "tie"
+
+        # 否则根据是否交换还原到 SFT / DPO
         if is_swapped:
-            return "DPO" if "1" in w else "SFT"
+            # Summary 1 = DPO, Summary 2 = SFT
+            return "DPO" if w == "1" else "SFT"
         else:
-            return "SFT" if "1" in w else "DPO"
-            
+            # Summary 1 = SFT, Summary 2 = DPO
+            return "SFT" if w == "1" else "DPO"
+
     except Exception as e:
-        print(f"Error: {e}")
-        return "error"
+        print(f"[get_winner] API or parse error: {e}")
+        # 出错就当作平局，或者你也可以 return "error" 并在外面跳过
+        return "tie"
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", default="data/metrics/gpt4_eval_pairs.json")
-    parser.add_argument("--api_key", default=os.getenv("OPENAI_API_KEY"))
-    parser.add_argument("--sample_size", type=int, default=10) # 测50-100条即可
+    parser.add_argument(
+        "--pairs_path",
+        type=str,
+        default="data/metrics/gpt4_eval_pairs.json",
+        help="JSON 文件，包含 SFT 和 DPO 的生成结果",
+    )
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        default=50,
+        help="随机评估多少对样本（上限为文件中实际数量）",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="gpt-4-turbo",
+        help="用来做评估的 GPT-4 型号，例如 gpt-4-turbo / gpt-4o 等",
+    )
+    parser.add_argument(
+        "--api_key",
+        type=str,
+        default=os.getenv("OPENAI_API_KEY"),
+        help="OpenAI API key（若不传则从环境变量中读取）",
+    )
     args = parser.parse_args()
-    
-    if not os.path.exists(args.input_file):
-        print("Please run 6_eval_metrics.py first!")
-        return
 
-    with open(args.input_file) as f: data = json.load(f)
-    samples = random.sample(data, min(len(data), args.sample_size))
-    
     client = OpenAI(api_key=args.api_key)
-    results = {"SFT": 0, "DPO": 0, "Tie": 0}
-    
-    print(f"Running GPT-4 Judge on {len(samples)} pairs...")
+
+    # 读取 SFT / DPO 对比文件
+    with open(args.pairs_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, list):
+        raise ValueError("pairs_path JSON 必须是 list[dict] 格式。")
+
+    n_available = len(data)
+    n_eval = min(args.num_samples, n_available)
+
+    print(f"Running GPT-4 Judge on {n_eval} pairs...")
+
+    # 随机抽样
+    samples = random.sample(data, n_eval)
+
+    # 统计结果，统一用小写 'tie'
+    results = {"SFT": 0, "DPO": 0, "tie": 0}
+
     for item in tqdm(samples):
-        winner = get_winner(client, item["prompt"], item["sft_pred"], item["dpo_pred"])
+        post = item.get("prompt", "")
+        sft_pred = item.get("sft_pred", "")
+        dpo_pred = item.get("dpo_pred", "")
+        
+        winner = get_winner(client, post, sft_pred, dpo_pred, model=args.model)
         if winner in results:
             results[winner] += 1
-            
-    total = results["SFT"] + results["DPO"] + results["Tie"]
-    win_rate = (results["DPO"] + 0.5 * results["Tie"]) / total
-    
-    print("\n" + "="*30)
+
+    total = results["SFT"] + results["DPO"] + results["tie"]
+    if total == 0:
+        print("No valid results were collected.")
+        return
+
+    win_rate = (results["DPO"] + 0.5 * results["tie"]) / total
+
+    print("\n" + "=" * 30)
     print("   HEAD-TO-HEAD WIN RATE   ")
-    print("="*30)
+    print("=" * 30)
     print(f"DPO Wins: {results['DPO']}")
     print(f"SFT Wins: {results['SFT']}")
-    print(f"Ties:     {results['Tie']}")
+    print(f"Ties:     {results['tie']}")
     print("-" * 30)
     print(f"DPO Win Rate: {win_rate:.2%}")
-    print("="*30)
+    print("=" * 30)
+
 
 if __name__ == "__main__":
     main()

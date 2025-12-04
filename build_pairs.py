@@ -1,7 +1,19 @@
-
+# Results from calibrate_weights.py : 
 # ==================================================================
-# Grid Search Accuracy : 69.50%
-# Best Weights from Grid (ROUGE, BERT, FACT) = (0.010, 0.740, 0.250)
+# Computing metrics for pair 400/400...
+# >>> Single-metric accuracies (A wins if Δmetric > 0):
+# ROUGE only accuracy: 58.50%
+# BERT only accuracy: 58.75%
+# FACT only accuracy: 63.50%
+# >>> Phase 3A: Logistic Regression for linear weights...
+# LR raw weights (ROUGE, BERT, FACT): [2.81564485 7.07069005 1.2073623 ]
+# LR raw decision accuracy: 65.25%
+# LR projected weights (ROUGE, BERT, FACT): (0.254, 0.637, 0.109)
+# LR projected decision accuracy: 65.25%
+# >>> Phase 3B: Grid Search on simplex for metric weights...
+# ==================================================================
+# Grid Search Accuracy : 67.50%
+# Best Weights from Grid (ROUGE, BERT, FACT) = (0.020, 0.780, 0.200)
 # ==================================================================
 import json
 import os
@@ -14,23 +26,20 @@ sys.path.append(os.getcwd())
 from src.metric_utils import MetricCalculator
 
 # ==============================================================================
-# [配置区] 精英筛选策略
+# 筛选策略
 # ==============================================================================
-# 沿用你之前校准出的权重 (Factuality 很高，这没问题，保证了安全性)
-WEIGHTS = {"rouge": 0.01, "bert": 0.74, "fact": 0.25}
+WEIGHTS = {"rouge": 0.02, "bert": 0.78, "fact": 0.2}
 
 CONFIG = {
-    # 1. 严格的事实性门槛：如果事实性太差，直接踢出，没资格做 Chosen
+    # 严格的事实性门槛：如果事实性太差，直接踢出，没资格做 Chosen
     "factuality_threshold": 0.5,
     
-    # 2. [核心修改] 显著提高分差阈值
-    # 只有当 Chosen 比 Rejected 高出这么多分时，才认为这是一组有效数据
-    # 原来是 0.05 -> 现在改为 0.12 (宁缺毋滥)
-    "min_score_gap": 0.12, 
+    # 分差阈值：只有当 Chosen 和 Rejected 差距足够大，才收录这对
+    "min_score_gap": 0.05, 
     
-    # 3. [新增] 人类摘要的及格线
+    # 人类摘要的及格线
     # 如果人类写的摘要算出来分数太低，说明这个数据本身质量差，整条丢弃
-    "min_human_score": 0.4 
+    "min_human_score": 0.3 
 }
 # ==============================================================================
 
@@ -44,8 +53,8 @@ def calculate_single_score(metrics_dict, idx, weights):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_file", default="data_backup/candidates/train_candidates_sft_and_bart.json")
-    parser.add_argument("--output_file", default="data/preferences/dpo_high_quality.json") 
+    parser.add_argument("--input_file", default="data_backup/candidates/train_candidates_new.json")
+    parser.add_argument("--output_file", default="data/preferences/dpo_candidates_new.json") 
     args = parser.parse_args()
 
     print("=== Step 4: Building High-Quality Preference Dataset ===")

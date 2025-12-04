@@ -9,7 +9,7 @@ def main():
     # 1. 路径与环境配置
     # ==========================================
     MODEL_PATH = "models/sft_1/checkpoint" # 你的SFT模型路径
-    DATA_FILE = "data/preferences/dpo_high_quality.json" # 偏好对数据路径
+    DATA_FILE = "data/preferences/dpo_candidates_new.json" # 偏好对数据路径
     OUTPUT_DIR = "models/dpo"
     LOG_DIR = f"{OUTPUT_DIR}/logs"
 
@@ -20,13 +20,6 @@ def main():
     if not os.path.exists(DATA_FILE):
         raise FileNotFoundError(f"Data file not found: {DATA_FILE}")
 
-    # 自动选择精度
-    if torch.cuda.is_bf16_supported():
-        dtype = torch.bfloat16
-        print("[System] Using bfloat16 precision.")
-    else:
-        dtype = torch.float16
-        print("[System] Using float16 precision.")
 
     # ==========================================
     # 2. 加载数据并划分验证集
@@ -50,10 +43,11 @@ def main():
     print("[Model] Loading Tokenizer & Policy Model...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
     
+    dtype = torch.bfloat16
     # Policy Model
     model = AutoModelForSeq2SeqLM.from_pretrained(
         MODEL_PATH, 
-        torch_dtype=dtype,
+        # dtype=dtype,
         device_map="auto"
     )
     
@@ -61,7 +55,7 @@ def main():
     print("[Model] Loading Reference Model...")
     ref_model = AutoModelForSeq2SeqLM.from_pretrained(
         MODEL_PATH,
-        torch_dtype=dtype,
+        # dtype=dtype,
         device_map="auto"
     )
 
@@ -90,8 +84,7 @@ def main():
         
         # --- 显存与硬件 ---
         gradient_checkpointing=True,
-        fp16=(dtype == torch.float16),
-        bf16=(dtype == torch.bfloat16),
+        fp16=True,
         
         # --- 日志与保存 ---
         logging_dir=LOG_DIR,

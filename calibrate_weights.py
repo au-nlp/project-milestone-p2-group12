@@ -4,6 +4,7 @@ import os
 import argparse
 import numpy as np
 from sklearn.metrics import accuracy_score
+from sklearn.linear_model import LogisticRegression
 from openai import OpenAI
 import sys
 
@@ -13,166 +14,288 @@ load_dotenv()
 sys.path.append(os.getcwd())
 from src.metric_utils import MetricCalculator
 
+
 def get_gpt4_judgment(client, post, sum_a, sum_b, model="gpt-4-turbo"):
-    # 系统提示词
+    """
+    用 GPT-4 比较两个摘要（A/B），返回 "A" 或 "B" 作为胜者。
+    如果解析失败，返回 None。
+    """
     system_prompt = """
-                    You are an expert evaluator for Reddit TL;DR summarization. 
-                    Your goal is to select the summary that best serves as a helpful, accurate, 
-                    and concise TL;DR for the original post.
-                    """
+You are an expert evaluator for Reddit TL;DR summarization.
+Your goal is to select the summary that best serves as a helpful, accurate,
+and concise TL;DR for the original post.
+"""
 
-    # 用户提示词：详细的评估步骤
     user_prompt = f"""
-                    Please evaluate two candidate summaries (A and B) for the given Reddit post.
+Please evaluate two candidate summaries (A and B) for the given Reddit post.
 
-                    [Evaluation Criteria] sorted by importance:
-                    1. **Factuality (Critical)**: The summary MUST NOT contain any hallucinations or information contradicting the post. If a summary creates fake details, it MUST lose.
-                    2. **Coverage**: The summary should capture the MAIN conflict or question of the post, not just a random detail.
-                    3. **Conciseness**: Shorter is better, provided it doesn't lose the core meaning. Reddit TL;DRs should be punchy.
-                    4. **Style**: First-person ("I") is preferred if the post is personal.
+[Original Post]
+{post}
 
-                    [Reddit Post]:
-                    {post}
+[Summary A]
+{sum_a}
 
-                    [Summary A]:
-                    {sum_a}
+[Summary B]
+{sum_b}
 
-                    [Summary B]:
-                    {sum_b}
+[Evaluation Criteria] in order of importance:
+1. Factuality (CRITICAL): The summary must not hallucinate or contradict the post.
+2. Coverage: It should capture the main point / conflict / question of the post.
+3. Clarity: It should be easy to read and understand.
+4. Conciseness: Shorter is better if the core meaning is preserved.
 
-                    [Instructions]:
-                    - First, analyze both summaries for factuality errors.
-                    - Second, compare which one captures the main point better.
-                    - Third, if both are accurate, choose the more concise one.
-                    - Finally, output your decision in strictly valid JSON format.
+[Task]
+Choose which summary (A or B) is overall better as a TL;DR according to the criteria.
+Respond ONLY with a JSON object of the form:
 
-                    Output Format:
-                    {{
-                        "reason": "Explain step-by-step why one is better than the other...",
-                        "winner": "A" (or "B")
-                    }}
-                """
+{{"winner": "A"}}
+or
+{{"winner": "B"}}
+"""
 
     try:
         response = client.chat.completions.create(
             model=model,
+            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            response_format={"type": "json_object"},
-            temperature=0 # 保持0温度以获得确定性结果
+            temperature=0.0,
         )
-        
-        # 解析返回内容
         content = response.choices[0].message.content
-        # 简单的清洗，防止Markdown代码块干扰
+        # 有时模型会包一层 ```json ... ```
         if "```" in content:
             content = content.replace("```json", "").replace("```", "")
-            
-        parsed_json = json.loads(content.strip())
-        
-        # 打印一下理由（可选，方便你观察模型是怎么想的）
-        # print(f"[Reasoning]: {parsed_json.get('reason')...")
-        
-        return parsed_json.get("winner")
-        
+        parsed = json.loads(content.strip())
+        winner = parsed.get("winner", "").strip()
+        if winner not in ["A", "B"]:
+            return None
+        return winner
     except Exception as e:
         print(f"API Error or JSON Parse Error: {e}")
         return None
 
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--api_key", type=str, default=os.getenv("OPENAI_API_KEY"), help="OpenAI API Key")
-    parser.add_argument("--input_file", type=str, default="data/candidates/train_candidates_hybrid.json")
-    parser.add_argument("--sample_size", type=int, default=50)
+    parser.add_argument(
+        "--api_key",
+        type=str,
+        default=os.getenv("OPENAI_API_KEY"),
+        help="OpenAI API Key",
+    )
+    parser.add_argument(
+        "--input_file",
+        type=str,
+        default="data/candidates/train_candidates_new.json",
+        help="Path to candidate file",
+    )
+    parser.add_argument(
+        "--sample_size",
+        type=int,
+        default=200,
+        help="Number of examples to sample for calibration",
+    )
+    parser.add_argument(
+        "--force_relabel",
+        action="store_true",
+        help="Ignore cached labels and call GPT-4 again",
+    )
     args = parser.parse_args()
+
+    # 为了可复现
+    random.seed(42)
+    np.random.seed(42)
 
     print("=== Step 3: Weight Calibration (LLM Distillation) ===")
 
-    # 1. 采样与 LLM 标注
-    # 检查是否有缓存的标注文件，避免重复花钱
+    # ---------- Phase 1: GPT-4 标注 A/B ----------
     cache_file = "data/calibration/labeled_pairs_cache.json"
-    if os.path.exists(cache_file):
+    use_cache = (os.path.exists(cache_file) and not args.force_relabel)
+
+    if use_cache:
         print(f"Loading cached labels from {cache_file}...")
-        with open(cache_file, 'r') as f:
+        with open(cache_file, "r", encoding="utf-8") as f:
             labeled_pairs = json.load(f)
     else:
-        with open(args.input_file, 'r') as f:
+        with open(args.input_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-        
+
+        # 只保留至少有两个不同策略响应的样本
         valid_data = [d for d in data if len(d.get("responses", {})) >= 2]
-        samples = random.sample(valid_data, min(len(valid_data), args.sample_size))
-        
+        if len(valid_data) == 0:
+            print("No valid samples found in input_file (need >=2 responses each).")
+            return
+
+        n_samples = min(len(valid_data), args.sample_size)
+        print(f"Sampling {n_samples} examples from {len(valid_data)} valid items...")
+        samples = random.sample(valid_data, n_samples)
+
         labeled_pairs = []
         client = OpenAI(api_key=args.api_key)
-        
+
         print(">>> Phase 1: Labeling with GPT-4...")
         for i, item in enumerate(samples):
             print(f"Labeling {i+1}/{len(samples)}...", end="\r")
             strats = list(item["responses"].keys())
+            # 随机选两个不同策略的候选摘要
             k_a, k_b = random.sample(strats, 2)
-            winner = get_gpt4_judgment(client, item["prompt"], item["responses"][k_a], item["responses"][k_b])
-            
-            if winner:
-                labeled_pairs.append({
-                    "ref": item["reference"],
-                    "src": item["post_plain"],
-                    "cand_a": item["responses"][k_a],
-                    "cand_b": item["responses"][k_b],
-                    "label": 1 if winner == "A" else 0
-                })
-        
-        # 保存中间结果！
-        os.makedirs("data/calibration", exist_ok=True)
-        with open(cache_file, "w") as f:
-            json.dump(labeled_pairs, f, indent=2)
-        print(f"\nSaved {len(labeled_pairs)} labeled pairs to {cache_file}")
 
-    # 2. 计算指标矩阵
+            winner = get_gpt4_judgment(
+                client,
+                item["prompt"],
+                item["responses"][k_a],
+                item["responses"][k_b],
+            )
+
+            if winner:
+                labeled_pairs.append(
+                    {
+                        "ref": item["reference"],
+                        "src": item["post_plain"],
+                        "cand_a": item["responses"][k_a],
+                        "cand_b": item["responses"][k_b],
+                        "label": 1 if winner == "A" else 0,
+                    }
+                )
+
+        print()  # 换行
+        if len(labeled_pairs) == 0:
+            print("GPT-4 labeling failed: no labeled pairs collected. Check API key and network.")
+            return
+
+        os.makedirs("data/calibration", exist_ok=True)
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(labeled_pairs, f, indent=2, ensure_ascii=False)
+        print(f"Saved {len(labeled_pairs)} labeled pairs to {cache_file}")
+
+    # ---------- Phase 2: 计算三种指标的差值 ----------
     print(">>> Phase 2: Computing Metrics...")
-    # 显式指定 device，防止和后台运行的生成脚本抢显存
-    calc = MetricCalculator() 
+    calc = MetricCalculator()
     X, y = [], []
-    
+
     for pair in labeled_pairs:
-        # A
-        m_a = calc.compute_batch([pair["cand_a"]], [pair["ref"]], [pair["src"]])
-        # B
-        m_b = calc.compute_batch([pair["cand_b"]], [pair["ref"]], [pair["src"]])
-        
+        m_a = calc.compute_batch(
+            [pair["cand_a"]], [pair["ref"]], [pair["src"]]
+        )
+        m_b = calc.compute_batch(
+            [pair["cand_b"]], [pair["ref"]], [pair["src"]]
+        )
+
         diff_r = m_a["rouge"][0] - m_b["rouge"][0]
         diff_b = m_a["bert"][0] - m_b["bert"][0]
         diff_f = m_a["fact"][0] - m_b["fact"][0]
-        
+
         X.append([diff_r, diff_b, diff_f])
         y.append(pair["label"])
-        
+
     X = np.array(X)
     y = np.array(y)
 
-    # 3. 网格搜索最佳权重
-    print(">>> Phase 3: Grid Search Optimization...")
-    best_acc, best_w = 0, (0,0,0)
-    
-    # 步长 0.1 遍历
-    for r in np.arange(0, 1.1, 0.1):
-        for b in np.arange(0, 1.1, 0.1):
-            f = 1.0 - r - b
-            if f < -0.01: continue
-            
-            # 预测: 分数 > 0 则 A 赢
-            preds = (np.dot(X, [r, b, f]) > 0).astype(int)
-            acc = accuracy_score(y, preds)
-            
-            if acc > best_acc:
-                best_acc, best_w = acc, (r, b, f)
+    if X.shape[0] == 0:
+        print("No metric data available for calibration.")
+        return
 
-    print("\n" + "="*40)
-    print(f"Calibration Accuracy: {best_acc:.2%}")
-    print(f"Optimal Weights: ROUGE={best_w[0]:.1f}, BERT={best_w[1]:.1f}, FACT={best_w[2]:.1f}")
-    print("="*40)
+    # 单指标 accuracy 看一下大致上限
+    def metric_acc(diff, y, name):
+        preds = (diff > 0).astype(int)  # Δmetric > 0 → 预测 A
+        acc = accuracy_score(y, preds)
+        print(f"{name} only accuracy: {acc:.2%}")
+
+    print(">>> Single-metric accuracies (A wins if Δmetric > 0):")
+    metric_acc(X[:, 0], y, "ROUGE")
+    metric_acc(X[:, 1], y, "BERT")
+    metric_acc(X[:, 2], y, "FACT")
+
+    # ---------- Phase 3A: Logistic Regression 学线性权重（分析用） ----------
+    print(">>> Phase 3A: Logistic Regression for linear weights...")
+
+    if len(np.unique(y)) < 2:
+        print("Only one class in labels; Logistic Regression cannot be fit. Skipping LR.")
+        lr_info = None
+    else:
+        clf = LogisticRegression(
+            penalty="l2",
+            C=1e6,             # 几乎不做正则
+            fit_intercept=False,
+            solver="lbfgs",
+            max_iter=1000,
+        )
+        clf.fit(X, y)
+
+        raw_w = clf.coef_[0]  # 可能有正有负
+        # 用 decision_function 看原始线性分数
+        raw_preds = (clf.decision_function(X) > 0).astype(int)
+        raw_acc = accuracy_score(y, raw_preds)
+
+        # 投影到 simplex：非负 + 和为 1
+        w_proj = np.maximum(raw_w, 0.0)
+        if w_proj.sum() <= 0:
+            w_proj = np.ones_like(w_proj) / len(w_proj)
+        else:
+            w_proj = w_proj / w_proj.sum()
+
+        proj_preds = (np.dot(X, w_proj) > 0).astype(int)
+        proj_acc = accuracy_score(y, proj_preds)
+
+        print(f"LR raw weights (ROUGE, BERT, FACT): {raw_w}")
+        print(f"LR raw decision accuracy: {raw_acc:.2%}")
+        print(
+            "LR projected weights (ROUGE, BERT, FACT): "
+            f"({w_proj[0]:.3f}, {w_proj[1]:.3f}, {w_proj[2]:.3f})"
+        )
+        print(f"LR projected decision accuracy: {proj_acc:.2%}")
+
+        lr_info = (w_proj, proj_acc)
+
+    # ---------- Phase 3B: 在 simplex 上 Grid Search（最终权重推荐） ----------
+    print(">>> Phase 3B: Grid Search on simplex for metric weights...")
+
+    def eval_acc(weights, X, y):
+        preds = (np.dot(X, weights) > 0).astype(int)
+        return accuracy_score(y, preds)
+
+    best_acc = 0.0
+    best_w = None
+
+    step = 0.01  # 网格步长，精细但计算量还能接受
+    r_values = np.arange(0.0, 1.0 + 1e-9, step)
+
+    for r in r_values:
+        max_b = 1.0 - r
+        b_values = np.arange(0.0, max_b + 1e-9, step)
+        for b in b_values:
+            f = 1.0 - r - b
+            if f < 0:
+                continue
+
+            # 如果你想强制 FACT 至少占一定比例（比如 0.2），可以打开下面这个约束：
+            # if f < 0.2:
+            #     continue
+
+            w = np.array([r, b, f])
+            acc = eval_acc(w, X, y)
+            if acc > best_acc:
+                best_acc = acc
+                best_w = w
+
+    print("\n" + "=" * 40)
+    print(f"Grid Search Accuracy : {best_acc:.2%}")
+    print(
+        "Best Weights from Grid (ROUGE, BERT, FACT) = "
+        f"({best_w[0]:.3f}, {best_w[1]:.3f}, {best_w[2]:.3f})"
+    )
+    if lr_info is not None:
+        print("-" * 40)
+        print(
+            "LR projected weights (for comparison) = "
+            f"({lr_info[0][0]:.3f}, {lr_info[0][1]:.3f}, {lr_info[0][2]:.3f}), "
+            f"acc = {lr_info[1]:.2%}"
+        )
+    print("=" * 40)
     print("Please update these weights in 4_build_dataset.py config!")
+
 
 if __name__ == "__main__":
     main()

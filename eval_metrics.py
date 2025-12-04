@@ -39,9 +39,6 @@ def generate_summaries(model_path, dataset, device, batch_size=8, max_samples=No
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=128,
-                #开启核采样
-                do_sample=True,
-                top_p=0.9,
                 num_beams=5,
                 no_repeat_ngram_size=3
             )
@@ -68,7 +65,7 @@ def main():
     
     # 1. 加载测试集
     print("Loading Test Set...")
-    dataset = load_from_disk(args.data_path)["test"] # 注意是 test 集！
+    dataset = load_from_disk(args.data_path)["test"] 
     
     # 2. 生成摘要
     print("\n>>> Generating SFT summaries...")
