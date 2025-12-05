@@ -11,12 +11,12 @@ load_dotenv()
 
 def get_winner(client, post, sft_pred, dpo_pred, model: str = "gpt-4-turbo") -> str:
     """
-    用 GPT-4 对比一对 (SFT, DPO) 摘要，返回 "SFT" / "DPO" / "tie"。
+    Use GPT-4 to compare a pair of summaries (SFT, DPO) and return "SFT" / "DPO" / "tie".
 
-    为避免位置偏差，会随机决定哪一个作为 Summary 1 / Summary 2，
-    然后根据返回的 winner 和 is_swapped 还原到 SFT / DPO 的胜负关系。
+    To avoid position bias, we randomly decide which one is Summary 1 / Summary 2,
+    then map the winner back to SFT / DPO based on is_swapped.
     """
-    # 随机交换顺序：True 表示 DPO 在前，False 表示 SFT 在前
+    # Randomly swap order: True means DPO is first, False means SFT is first
     is_swapped = random.random() > 0.5
     if is_swapped:
         s1, s2 = dpo_pred, sft_pred
@@ -67,7 +67,7 @@ Respond STRICTLY in JSON format:
         )
         content = resp.choices[0].message.content
 
-        # 处理可能的 ```json 包裹
+        # Handle possible ```json wrapping
         if "```" in content:
             content = content.replace("```json", "").replace("```", "")
         parsed = json.loads(content.strip())
@@ -76,11 +76,11 @@ Respond STRICTLY in JSON format:
         if w not in {"1", "2", "tie"}:
             raise ValueError(f"Unexpected winner value: {w}")
 
-        # 先处理平局
+        # Handle tie first
         if w == "tie":
             return "tie"
 
-        # 否则根据是否交换还原到 SFT / DPO
+        # Otherwise map back to SFT / DPO depending on swap
         if is_swapped:
             # Summary 1 = DPO, Summary 2 = SFT
             return "DPO" if w == "1" else "SFT"
@@ -90,7 +90,6 @@ Respond STRICTLY in JSON format:
 
     except Exception as e:
         print(f"[get_winner] API or parse error: {e}")
-        # 出错就当作平局，或者你也可以 return "error" 并在外面跳过
         return "tie"
 
 
@@ -100,46 +99,46 @@ def main():
         "--pairs_path",
         type=str,
         default="data/metrics/gpt4_eval_pairs.json",
-        help="JSON 文件，包含 SFT 和 DPO 的生成结果",
+        help="JSON file containing SFT and DPO generation results",
     )
     parser.add_argument(
         "--num_samples",
         type=int,
-        default=50,
-        help="随机评估多少对样本（上限为文件中实际数量）",
+        default=100,
+        help="How many pairs to randomly evaluate (upper-bounded by dataset size)",
     )
     parser.add_argument(
         "--model",
         type=str,
         default="gpt-4-turbo",
-        help="用来做评估的 GPT-4 型号，例如 gpt-4-turbo / gpt-4o 等",
+        help="GPT-4 model used for evaluation, e.g., gpt-4-turbo / gpt-4o",
     )
     parser.add_argument(
         "--api_key",
         type=str,
         default=os.getenv("OPENAI_API_KEY"),
-        help="OpenAI API key（若不传则从环境变量中读取）",
+        help="OpenAI API key (if not provided, will be read from environment variables)",
     )
     args = parser.parse_args()
 
     client = OpenAI(api_key=args.api_key)
 
-    # 读取 SFT / DPO 对比文件
+    # Read SFT / DPO comparison file
     with open(args.pairs_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     if not isinstance(data, list):
-        raise ValueError("pairs_path JSON 必须是 list[dict] 格式。")
+        raise ValueError("pairs_path JSON must be in list[dict] format.")
 
     n_available = len(data)
     n_eval = min(args.num_samples, n_available)
 
     print(f"Running GPT-4 Judge on {n_eval} pairs...")
 
-    # 随机抽样
+    # Random sampling
     samples = random.sample(data, n_eval)
 
-    # 统计结果，统一用小写 'tie'
+    # Count results, using lowercase 'tie'
     results = {"SFT": 0, "DPO": 0, "tie": 0}
 
     for item in tqdm(samples):

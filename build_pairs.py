@@ -26,25 +26,25 @@ sys.path.append(os.getcwd())
 from src.metric_utils import MetricCalculator
 
 # ==============================================================================
-# 筛选策略
+# Filtering strategy
 # ==============================================================================
 WEIGHTS = {"rouge": 0.02, "bert": 0.78, "fact": 0.2}
 
 CONFIG = {
-    # 严格的事实性门槛：如果事实性太差，直接踢出，没资格做 Chosen
+    # Strict factuality threshold: if factuality is too low, directly discard; not eligible to be Chosen
     "factuality_threshold": 0.5,
     
-    # 分差阈值：只有当 Chosen 和 Rejected 差距足够大，才收录这对
+    # Score gap threshold: only when the gap between Chosen and Rejected is large enough, we keep this pair
     "min_score_gap": 0.05, 
     
-    # 人类摘要的及格线
-    # 如果人类写的摘要算出来分数太低，说明这个数据本身质量差，整条丢弃
+    # Passing score for human summary
+    # If the human-written summary gets a very low score, it indicates the data quality is poor, so we discard the entire item
     "min_human_score": 0.3 
 }
 # ==============================================================================
 
 def calculate_single_score(metrics_dict, idx, weights):
-    """计算单个候选的加权总分"""
+    """Compute the weighted total score for a single candidate"""
     return (
         metrics_dict["rouge"][idx] * weights["rouge"] +
         metrics_dict["bert"][idx]  * weights["bert"] +
@@ -67,8 +67,8 @@ def main():
         "processed": 0,
         "kept_type_a": 0, # Human vs Model
         "kept_type_b": 0, # Model vs Model
-        "discarded_human_bad": 0, # 人类写得烂
-        "discarded_small_gap": 0  # 分不开
+        "discarded_human_bad": 0, # Human summary is poor
+        "discarded_small_gap": 0  # Scores too close
     }
     
     print(f"Filtering {len(data)} items with strict rules...")
@@ -77,25 +77,23 @@ def main():
         src = item.get("post_plain", "") or item["prompt"]
         human_ref = item["reference"]
         
-        # 提取所有模型生成的候选
+        # Extract all model-generated candidates
         model_cands = list(item["responses"].values())
         model_strats = list(item["responses"].keys())
         if len(model_cands) < 1: continue
         
-        # -------------------------------------------------------
-        # 1. 统一大乱斗：把 Human 也放进去一起打分
-        # -------------------------------------------------------
-        all_texts = model_cands + [human_ref] # 最后一个是 Human
+        # Include the human summary for scoring as well
+        all_texts = model_cands + [human_ref] 
         
-        # 批量计算 (所有模型候选 + Human)
-        # 注意：这里 Reference 依然用 Human，计算 Human vs Human 的分数主要看 Factuality 和 BERT(自相关)
-        # 这能帮我们筛出那些人类写得离题太远（低 Factuality）的脏数据
+        # Batch compute metrics (all model candidates + human)
+        # Reference is still the human summary; computing Human vs Human mainly checks Factuality and BERT (self-correlation)
+        # This helps us filter out low-quality human summaries that deviate too far from the post (low factuality)
         refs = [human_ref] * len(all_texts)
         srcs = [src] * len(all_texts)
         
         m = calc.compute_batch(all_texts, refs, srcs)
         
-        # 整理分数
+        # Collect scores
         scored_items = []
         for i in range(len(all_texts)):
             score = calculate_single_score(m, i, WEIGHTS)
@@ -112,26 +110,22 @@ def main():
                 "strategy": strategy
             })
             
-        # -------------------------------------------------------
-        # 2. 提取角色
-        # -------------------------------------------------------
+        #  Extract roles
         human_item = scored_items[-1]
         model_items = scored_items[:-1]
         
-        # 按分数对模型候选排序
+        # Sort model candidates by score
         model_items.sort(key=lambda x: x["score"], reverse=True)
         best_model = model_items[0]
         worst_model = model_items[-1]
         
         stats["processed"] += 1
 
-        # -------------------------------------------------------
-        # 3. 构建策略 A: 挑战人类 (Human vs Model)
-        # -------------------------------------------------------
-        # 只有当人类的分数 合格，且 显著高于 最好模型时，才收录
-        # (避免模型明明写得比人好，却被强行判负)
+        # Strategy A: Challenge human (Human vs Model)
+        # Only when the human score is passing and clearly higher than the best model
+        # do we include this pair (avoid cases where the model is actually better)
         
-        # 3.1 检查人类及格线
+        # Check human passing line
         if human_item["score"] >= CONFIG["min_human_score"]:
             gap_a = human_item["score"] - best_model["score"]
             
@@ -145,22 +139,17 @@ def main():
                 })
                 stats["kept_type_a"] += 1
             else:
-                # 这种情况下，模型已经逼近人类，甚至反超。
-                # 激进策略：如果模型分比人高，反向构建 (Model > Human)？
-                # 保守策略：丢弃 (神仙打架，不学了) -> 这里选丢弃，求稳
                 stats["discarded_small_gap"] += 1
         else:
             stats["discarded_human_bad"] += 1
 
-        # -------------------------------------------------------
-        # 4. 构建策略 B: 自我博弈 (Model vs Model)
-        # -------------------------------------------------------
+        # Strategy B: Self-play (Model vs Model)
         gap_b = best_model["score"] - worst_model["score"]
         
-        # 只有分差够大，且 Chosen 的事实性没有硬伤
+        # Only keep if the score gap is large enough and the chosen candidate passes the factuality threshold
         if gap_b >= CONFIG["min_score_gap"]:
             if best_model["fact"] >= CONFIG["factuality_threshold"]:
-                # 去重
+                # Deduplicate
                 if best_model["text"] != worst_model["text"]:
                     final_pairs.append({
                         "prompt": item["prompt"],
@@ -171,13 +160,14 @@ def main():
                     })
                     stats["kept_type_b"] += 1
             else:
-                # 最好模型的幻觉都太多，这组数据太烂，不要了
+                # Even the best model has too much hallucination; this sample is too noisy, discard it
                 pass
         else:
-            # 最好和最差差不多，说明模型对这个prompt生成的都很稳（或者都很烂），学不到东西
+            # Best and worst are too similar, meaning the model's generations for this prompt are very stable
+            # (or uniformly bad), so there's little signal to learn from
             pass
 
-    # 保存
+    # Save
     os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
     with open(args.output_file, 'w') as f:
         json.dump(final_pairs, f, indent=2)

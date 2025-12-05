@@ -1,12 +1,11 @@
-# src/decoding_utils.py
 import torch
 
 def get_decoding_strategies():
     """
-    定义生成策略组合。
+    Define generation strategy combinations.
     """
     return [
-        # 策略1: Beam Search (稳健，质量高，通常作为 Chosen 的强力候选)
+        # Strategy 1: Beam Search (stable, high quality, usually a strong Chosen candidate)
         {
             "name": "beam_search",
             "num_beams": 5,
@@ -15,7 +14,7 @@ def get_decoding_strategies():
             "min_length": 10,
             "no_repeat_ngram_size": 3,
         },
-        # 策略2: Nucleus Sampling (temp=0.7) - 兼顾质量与多样性
+        # Strategy 2: Nucleus Sampling (temp=0.7) - balances quality and diversity
         {
             "name": "sampling_mid",
             "do_sample": True,
@@ -23,7 +22,7 @@ def get_decoding_strategies():
             "temperature": 0.7,
             "max_new_tokens": 128,
         },
-        # 策略3: High Temperature (temp=1.0) - 容易出错，作为潜在 Rejected 来源
+        # Strategy 3: High Temperature (temp=1.0) - more error-prone, used as potential Rejected candidates
         {
             "name": "sampling_high",
             "do_sample": True,
@@ -35,24 +34,24 @@ def get_decoding_strategies():
 
 def batch_generate(model, tokenizer, batch_prompts, device):
     """
-    对一个 Batch 执行所有策略的生成
+    Run all strategies for one batch of prompts.
     """
     strategies = get_decoding_strategies()
     
-    # 统一编码
+    # Unified tokenization
     inputs = tokenizer(
         batch_prompts, 
         padding=True, 
         truncation=True, 
-        max_length=1024, # 根据 Reddit 帖子长度调整
+        max_length=1024, # Adjust according to Reddit post length
         return_tensors="pt"
     ).to(device)
 
-    # 结果字典：{ "beam_search": [text1, text2...], ... }
+    # Result dict: { "beam_search": [text1, text2...], ... }
     batch_results = {conf["name"]: [] for conf in strategies}
 
     for config in strategies:
-        # 过滤掉自定义字段 'name'
+        # Remove custom field 'name'
         gen_kwargs = {k: v for k, v in config.items() if k != "name"}
         
         try:
@@ -71,7 +70,7 @@ def batch_generate(model, tokenizer, batch_prompts, device):
             if "out of memory" in str(e):
                 print(f"| WARNING: OOM with strategy {config['name']}. Skipping this batch strategy.")
                 torch.cuda.empty_cache()
-                # 填充空字符串占位，保持列表长度一致
+                # Fill empty strings as placeholders to maintain list length
                 batch_results[config["name"]] = [""] * len(batch_prompts)
             else:
                 raise e

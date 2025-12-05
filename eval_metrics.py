@@ -8,7 +8,7 @@ from datasets import load_from_disk
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import sys
 
-# 复用之前的工具
+# Reuse project utilities from the current working directory
 sys.path.append(os.getcwd())
 from src.metric_utils import MetricCalculator
 
@@ -23,7 +23,7 @@ def generate_summaries(model_path, dataset, device, batch_size=8, max_samples=No
         
     predictions = []
     
-    # 批量生成
+    # Batch generation
     for i in tqdm(range(0, len(dataset), batch_size), desc="Generating"):
         batch = dataset[i : i + batch_size]
         inputs = tokenizer(
@@ -35,7 +35,7 @@ def generate_summaries(model_path, dataset, device, batch_size=8, max_samples=No
         ).to(device)
         
         with torch.no_grad():
-            # 评估时通常使用 Beam Search 以获得最稳健的结果
+            # Use beam search during evaluation to get more stable outputs
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=128,
@@ -45,7 +45,7 @@ def generate_summaries(model_path, dataset, device, batch_size=8, max_samples=No
         decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         predictions.extend(decoded)
         
-    # 释放显存
+    # Free GPU memory
     del model
     torch.cuda.empty_cache()
     
@@ -53,38 +53,37 @@ def generate_summaries(model_path, dataset, device, batch_size=8, max_samples=No
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sft_path", default="models/sft_1/checkpoint")
-    parser.add_argument("--dpo_path", default="models/dpo")
+    parser.add_argument("--sft_path", default="models/sft")
+    parser.add_argument("--dpo_path", default="models/dpo0.1")
     parser.add_argument("--data_path", default="data/tldr_cleaned")
     parser.add_argument("--output_file", default="data/metrics/eval_results.json")
-    # 测试集跑500条足够看趋势了，全量跑太慢
+    # Running 500 test samples is enough to see trends; full test set is too slow
     parser.add_argument("--test_samples", type=int, default=500) 
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # 1. 加载测试集
+    # Load test set
     print("Loading Test Set...")
     dataset = load_from_disk(args.data_path)["test"] 
     
-    # 2. 生成摘要
+    # Generate summaries
     print("\n>>> Generating SFT summaries...")
     sft_preds = generate_summaries(args.sft_path, dataset, device, max_samples=args.test_samples)
     
     print("\n>>> Generating DPO summaries...")
     dpo_preds = generate_summaries(args.dpo_path, dataset, device, max_samples=args.test_samples)
     
-    # 3. 计算指标
+    #  Compute metrics
     print("\n>>> Computing Metrics...")
     calc = MetricCalculator(device=device)
     
-    # 准备 Reference 和 Source
-    # 注意：generate_summaries 可能会截断 dataset，所以要重新对齐
+    # Prepare reference and source
     subset = dataset.select(range(len(sft_preds)))
     refs = subset["gold_tldr"]
     srcs = [x.get("post_plain", x["post_for_model"]) for x in subset]
     
-    # 计算 SFT 指标
+    # Compute SFT metrics
     print("Scoring SFT...")
     m_sft = calc.compute_batch(sft_preds, refs, srcs)
     sft_scores = {
@@ -93,7 +92,7 @@ def main():
         "fact": np.mean(m_sft["fact"])
     }
     
-    # 计算 DPO 指标
+    # Compute DPO metrics
     print("Scoring DPO...")
     m_dpo = calc.compute_batch(dpo_preds, refs, srcs)
     dpo_scores = {
@@ -102,7 +101,7 @@ def main():
         "fact": np.mean(m_dpo["fact"])
     }
     
-    # 4. 打印报告
+    # 4. Print report
     print("\n" + "="*50)
     print(f"{'Metric':<10} | {'SFT':<10} | {'DPO':<10} | {'Delta':<10}")
     print("-" * 50)
@@ -113,10 +112,10 @@ def main():
         print(f"{k.upper():<10} | {v1:.4f}     | {v2:.4f}     | {delta:+.4f}")
     print("="*50)
     
-    # 5. 保存结果用于 GPT-4 评测
+    # 5. Save results for GPT-4 evaluation
     os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
     
-    # 保存生成的对比样本 (JSONL)
+    # Save generated comparison samples (JSONL)
     pairs_file = "data/metrics/gpt4_eval_pairs.json"
     pairs_data = []
     for i in range(len(sft_preds)):

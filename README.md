@@ -1,25 +1,29 @@
 # Preference-Aligned TL;DR Summarization Using Direct Preference Optimization
 
 ## Abstract
-Traditional summarization models, trained with supervised objectives like maximum likelihood estimation, often optimize for lexical overlap rather than human judgment. As a result, their summaries may be fluent yet unfaithful, verbose, or stylistically inconsistent.  
-This project explores preference alignment for Reddit TL;DR summarization using **Direct Preference Optimization (DPO)**. Unlike standard fine-tuning, which imitates reference summaries, DPO directly learns to prefer summaries that better reflect human-like preferences—conciseness, coherence, and factual faithfulness.  
-We fine-tune a baseline model on the Reddit TL;DR dataset and automatically construct preference pairs (`chosen`, `rejected`) using a combination of ROUGE, BERTScore, and factual-consistency metrics. These serve as proxy signals for human judgment. The DPO-aligned model is expected to outperform the baseline on both automatic metrics and human win rate, showing that preference alignment can be achieved without manual labeling.  
-This work also investigates the reliability of automatic preference generation and discusses potential limitations and mitigation strategies.
+Traditional summarization models, trained with supervised objectives like maximum likelihood estimation, often optimize for lexical overlap rather than human judgment. As a result, their summaries may be fluent yet unfaithful, verbose, or stylistically inconsistent.
+
+This project explores preference alignment for Reddit TL;DR summarization using Direct Preference Optimization (DPO). Unlike standard fine-tuning, which imitates reference summaries, DPO directly learns to prefer summaries that better reflect human-like preferences—conciseness, coherence, and factual faithfulness.
+
+To overcome the limitations of single-model generation and subjective metric weighting, we introduce a Hybrid Construction Strategy. We augment the candidate pool with external models (BART, Pegasus) to increase diversity and employ a Data-Driven Calibration process, where GPT-4 judgments are distilled into optimal weights for ROUGE, BERTScore, and Factuality metrics. The final dataset combines Alignment Pairs (Human vs. Model) and Robustness Pairs (Model vs. Model). The DPO-aligned model is expected to outperform the baseline on both automatic metrics and human win rate, demonstrating that robust preference alignment can be achieved without large-scale manual labeling.
 
 ---
 
 ## Contributions
 
-1. **Automatic Preference Generation Framework**  
-   Develop an automatic pipeline that constructs preference pairs from model-generated summaries using ROUGE, BERTScore, and factuality metrics, reducing the need for costly human annotations.
+1. **Hybrid Candidate Generation Strategy**  
+ We mitigate "self-reinforcing bias" by generating candidates not only from the SFT baseline but also from external models (BART, Pegasus). This introduces diverse error patterns and stylistic variations, providing richer signals for preference learning.
 
-2. **Preference Alignment on User-Generated Text**  
-   Apply DPO to Reddit TL;DR posts—informal and noisy user-generated content—to evaluate the robustness and generalization of preference alignment in real-world conditions.
+2. **LLM-Calibrated Scoring Mechanism** 
+   Instead of using arbitrary heuristic weights, we perform LLM Distillation. We sample a small subset of data, obtain GPT-4 judgments, and use Grid Search to mathematically calibrate the weights of automatic metrics (ROUGE, BERTScore, Factuality) to align with GPT-4's evaluation criteria.
 
-3. **Factuality-Aware Evaluation**  
+3. **Dual-Strategy Preference Construction**  
+We construct a mixed dataset comprising Type A (Anchor Alignment) pairs to enforce high-quality human standards and Type B (Self-Correction) pairs to enhance model robustness against hallucinations and repetition.
+
+4. **Factuality-Aware Evaluation**  
    Integrate factual consistency metrics (SummaC, QAFactEval) into evaluation, quantifying how DPO affects truthfulness and hallucination reduction.
 
-4. **Analysis of Proxy Preference Validity**  
+5. **Analysis of Proxy Preference Validity**  
    Provide empirical analysis of whether metric-based preferences approximate human judgments, and propose validation and correction methods.
 
 
@@ -56,15 +60,19 @@ It learns to produce concise summaries but may not align with human preference i
 
 ---
 
-### Step 2 — Candidate Generation
-For each Reddit post, the SFT model generates multiple candidate summaries using diverse decoding parameters:
-- Beam search 
-- Nucleus sampling 
-- Temperature scaling 
 
-This ensures diversity among outputs, producing both strong and weak candidates for comparison.
+### Step 2 — Diversified Candidate Generation
+To prevent mode collapse and ensure high-variance data for DPO, we generate 4–6 candidate summaries per prompt using a "Avengers Ensemble" approach:
+
+1. SFT Model (Self): Generates candidates using Beam Search (high quality) and Nucleus Sampling (high diversity).
+
+2. External Models (Out-of-Distribution): We generate additional candidates using sshleifer/distilbart-cnn-12-6 and facebook/bart-large-xsum.
+
+**Purpose:**   
+- These models introduce different stylistic biases and error modes, preventing the DPO model from overfitting to its own idiosyncrasies.
 
 ---
+
 
 ### Step 3 — Automatic Preference Construction
 Each candidate summary is scored along three complementary dimensions:
@@ -76,9 +84,17 @@ Each candidate summary is scored along three complementary dimensions:
 | Factual Faithfulness | SummaC / QAFactEval | Consistency with source post         |
 
 
-We propose a simple weighted aggregation of ROUGE, BERTScore, and factual consistency metrics as an automatic proxy for human preference, with empirically motivated weights (0.5, 0.3, 0.2).
+We propose a simple weighted aggregation of ROUGE, BERTScore, and factual consistency metrics as an automatic proxy for human preference:
 
-$S = 0.5 \times \text{ROUGE} + 0.3 \times \text{BERTScore} + 0.2 \times \text{Factuality}$
+To determine how to rank these candidates objectively, we avoid manual weight tuning. Instead:
+1. We sample 50 pairs of summaries.
+2. We use GPT-4 as a "Teacher" to judge which summary is better based on Factuality, Conciseness, and Coherence.
+3. We calculate ROUGE, BERTScore, and Factuality scores locally.
+4. We perform a Grid Search to find the optimal weights $(w_R, w_B, w_F)$ that maximize the agreement between our linear formula and GPT-4's decisions.
+   
+$$S_{\text{calibrated}} = w_R \times \text{ROUGE} + w_B \times \text{BERTScore} + w_F \times \text{Factuality}$$
+
+
 
 The highest-scoring candidate is marked as **chosen**, and the lowest as **rejected**, provided the score gap ≥ 0.05.  
 Pairs with minimal difference are discarded to avoid label noise.
@@ -93,7 +109,30 @@ Thus, metric-based pairs serve as a valid approximation of human preferences whe
 
 ---
 
-### Step 4 — Direct Preference Optimization (DPO)
+### Step 4 — Hybrid Preference Construction
+Using the calibrated scoring function, we construct a mixed preference dataset:
+
+1. Factuality Safety Lock: Any candidate with a Factuality score below a threshold (e.g., 0.5) is immediately discarded to prevent hallucinations from becoming chosen samples.
+
+2. Type A: Alignment Pairs (Human vs. Model)
+
+- Chosen: Human Reference (Gold TL;DR).
+
+- Rejected: The highest-scoring model candidate.
+
+- Goal: Raise the quality ceiling and force alignment with human intent.
+
+2. Type B: Robustness Pairs (Model vs. Model)
+
+- Chosen: Higher-scoring model candidate.
+
+- Rejected: Lower-scoring model candidate (requires Score Gap ≥ 0.05).
+
+- Goal: Teach the model fine-grained discrimination and self-correction within its own distribution.
+
+---
+
+### Step 5 — Direct Preference Optimization (DPO)
 We train a preference-aligned model using the DPO loss:
 
 $L_{\mathrm{DPO}} = -\log \sigma(\beta [\log \pi_\theta(y_c|x) - \log \pi_\theta(y_r|x) - \log \pi_{\mathrm{ref}}(y_c|x) + \log \pi_{\mathrm{ref}}(y_r|x)])$

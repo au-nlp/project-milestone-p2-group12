@@ -10,7 +10,7 @@ import sys
 
 from dotenv import load_dotenv
 load_dotenv()
-# 确保能导入 src
+
 sys.path.append(os.getcwd())
 from src.metric_utils import MetricCalculator
 
@@ -104,7 +104,6 @@ def main():
     )
     args = parser.parse_args()
 
-    # 为了可复现
     random.seed(42)
     np.random.seed(42)
 
@@ -160,7 +159,7 @@ def main():
                     }
                 )
 
-        print()  # 换行
+        print() 
         if len(labeled_pairs) == 0:
             print("GPT-4 labeling failed: no labeled pairs collected. Check API key and network.")
             return
@@ -259,7 +258,7 @@ def main():
     best_acc = 0.0
     best_w = None
 
-    step = 0.01  # 网格步长，精细但计算量还能接受
+    step = 0.01  # 网格步长
     r_values = np.arange(0.0, 1.0 + 1e-9, step)
 
     for r in r_values:
@@ -269,10 +268,6 @@ def main():
             f = 1.0 - r - b
             if f < 0:
                 continue
-
-            # 如果你想强制 FACT 至少占一定比例（比如 0.2），可以打开下面这个约束：
-            # if f < 0.2:
-            #     continue
 
             w = np.array([r, b, f])
             acc = eval_acc(w, X, y)
