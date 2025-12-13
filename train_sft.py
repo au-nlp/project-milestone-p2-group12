@@ -12,9 +12,7 @@ from transformers import (
     Seq2SeqTrainer,
 )
 
-# ==========================
 # config
-# ==========================
 MODEL_NAME = "google/flan-t5-base"
 DATA_DIR   = "data/tldr_cleaned"      
 OUTPUT_DIR = "models/sft"
@@ -76,12 +74,12 @@ def compute_metrics(eval_pred, tokenizer):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # 1. 模型 & tokenizer
+    # model & tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
 
-    # 2. 数据集
-    dataset = load_from_disk(DATA_DIR)   # 需要包含 train / validation split
+    # dataset
+    dataset = load_from_disk(DATA_DIR)   # train / validation split
     column_names = dataset["train"].column_names
 
     tokenized = dataset.map(
@@ -90,14 +88,14 @@ def main():
         remove_columns=column_names,
     )
 
-    # 3. collator
+    # collator
     data_collator = DataCollatorForSeq2Seq(
         tokenizer=tokenizer,
         model=model,
         label_pad_token_id=-100,
     )
 
-    # 4. training args
+    # training args
     bf16_flag = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     training_args = Seq2SeqTrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -121,7 +119,7 @@ def main():
         remove_unused_columns=False,
     )
 
-    # 5. Trainer
+    # Trainer
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
