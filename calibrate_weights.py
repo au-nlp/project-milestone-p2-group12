@@ -17,8 +17,8 @@ from src.metric_utils import MetricCalculator
 
 def get_gpt4_judgment(client, post, sum_a, sum_b, model="gpt-4-turbo"):
     """
-    用 GPT-4 比较两个摘要（A/B），返回 "A" 或 "B" 作为胜者。
-    如果解析失败，返回 None。
+    Use GPT-4 to compare two summaries (A/B), return "A" or "B" as the winner.
+    If parsing fails, return None.
     """
     system_prompt = """
 You are an expert evaluator for Reddit TL;DR summarization.
@@ -64,7 +64,7 @@ or
             temperature=0.0,
         )
         content = response.choices[0].message.content
-        # 有时模型会包一层 ```json ... ```
+        # Sometimes the model wraps output in ```json ... ```
         if "```" in content:
             content = content.replace("```json", "").replace("```", "")
         parsed = json.loads(content.strip())
@@ -109,7 +109,7 @@ def main():
 
     print("=== Step 3: Weight Calibration (LLM Distillation) ===")
 
-    # ---------- Phase 1: GPT-4 标注 A/B ----------
+    # ---------- Phase 1: GPT-4 labeling A/B ----------
     cache_file = "data/calibration/labeled_pairs_cache.json"
     use_cache = (os.path.exists(cache_file) and not args.force_relabel)
 
@@ -121,7 +121,7 @@ def main():
         with open(args.input_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # 只保留至少有两个不同策略响应的样本
+        # Keep only samples with >=2 different strategy responses
         valid_data = [d for d in data if len(d.get("responses", {})) >= 2]
         if len(valid_data) == 0:
             print("No valid samples found in input_file (need >=2 responses each).")
@@ -138,7 +138,7 @@ def main():
         for i, item in enumerate(samples):
             print(f"Labeling {i+1}/{len(samples)}...", end="\r")
             strats = list(item["responses"].keys())
-            # 随机选两个不同策略的候选摘要
+            # Randomly pick two different strategy candidate summaries
             k_a, k_b = random.sample(strats, 2)
 
             winner = get_gpt4_judgment(
@@ -169,7 +169,7 @@ def main():
             json.dump(labeled_pairs, f, indent=2, ensure_ascii=False)
         print(f"Saved {len(labeled_pairs)} labeled pairs to {cache_file}")
 
-    # ---------- Phase 2: 计算三种指标的差值 ----------
+    # ---------- Phase 2: Compute metric differences ----------
     print(">>> Phase 2: Computing Metrics...")
     calc = MetricCalculator()
     X, y = [], []
@@ -196,9 +196,9 @@ def main():
         print("No metric data available for calibration.")
         return
 
-    # 单指标 accuracy 看一下大致上限
+    # Single-metric accuracy (upper-bound sanity check)
     def metric_acc(diff, y, name):
-        preds = (diff > 0).astype(int)  # Δmetric > 0 → 预测 A
+        preds = (diff > 0).astype(int)  # Δmetric > 0 → predict A
         acc = accuracy_score(y, preds)
         print(f"{name} only accuracy: {acc:.2%}")
 
@@ -207,7 +207,7 @@ def main():
     metric_acc(X[:, 1], y, "BERT")
     metric_acc(X[:, 2], y, "FACT")
 
-    # ---------- Phase 3A: Logistic Regression 学线性权重（分析用） ----------
+    # ---------- Phase 3A: Logistic Regression to learn linear weights (analysis only) ----------
     print(">>> Phase 3A: Logistic Regression for linear weights...")
 
     if len(np.unique(y)) < 2:
@@ -216,19 +216,19 @@ def main():
     else:
         clf = LogisticRegression(
             penalty="l2",
-            C=1e6,             # 几乎不做正则
+            C=1e6,             # Almost no regularization
             fit_intercept=False,
             solver="lbfgs",
             max_iter=1000,
         )
         clf.fit(X, y)
 
-        raw_w = clf.coef_[0]  # 可能有正有负
-        # 用 decision_function 看原始线性分数
+        raw_w = clf.coef_[0]  # May contain positive and negative values
+        # Use decision_function to examine raw linear scores
         raw_preds = (clf.decision_function(X) > 0).astype(int)
         raw_acc = accuracy_score(y, raw_preds)
 
-        # 投影到 simplex：非负 + 和为 1
+        # Project to simplex: non-negative + sum = 1
         w_proj = np.maximum(raw_w, 0.0)
         if w_proj.sum() <= 0:
             w_proj = np.ones_like(w_proj) / len(w_proj)
@@ -248,7 +248,7 @@ def main():
 
         lr_info = (w_proj, proj_acc)
 
-    # ---------- Phase 3B: 在 simplex 上 Grid Search（最终权重推荐） ----------
+    # ---------- Phase 3B: Grid Search on simplex (final recommended weights) ----------
     print(">>> Phase 3B: Grid Search on simplex for metric weights...")
 
     def eval_acc(weights, X, y):
@@ -258,7 +258,7 @@ def main():
     best_acc = 0.0
     best_w = None
 
-    step = 0.01  # 网格步长
+    step = 0.01  # grid step size
     r_values = np.arange(0.0, 1.0 + 1e-9, step)
 
     for r in r_values:
@@ -290,6 +290,7 @@ def main():
         )
     print("=" * 40)
     print("Please update these weights in 4_build_dataset.py config!")
+
 
 
 if __name__ == "__main__":

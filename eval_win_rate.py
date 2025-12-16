@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
 def get_winner(client, post, sft_pred, dpo_pred, model: str = "gpt-4-turbo") -> str:
     """
     Use GPT-4 to compare a pair of summaries (SFT, DPO) and return "SFT" / "DPO" / "tie".

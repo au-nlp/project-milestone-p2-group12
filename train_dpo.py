@@ -5,7 +5,6 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from trl import DPOTrainer, DPOConfig
 
 def main():
-
     #  Path and environment config
     MODEL_PATH = "models/sft_1/checkpoint"  # SFT model path
     DATA_FILE = "data/preferences/dpo_candidates_new.json"  # Preference pair data path

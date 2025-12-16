@@ -11,9 +11,7 @@ import sys
 sys.path.append(os.getcwd())
 from src.decoding_utils import batch_generate
 
-# ==============================================================================
 # Configs
-# ==============================================================================
 MODELS_CONFIG = [
     # 1. SFT base (style: Reddit informal)
     ("sft", "models/sft"), 
@@ -24,7 +22,6 @@ MODELS_CONFIG = [
     # 3. BART-XSum (style: very concise, highly abstract)
     ("bart_xsum", "facebook/bart-large-xsum")
 ]
-# ==============================================================================
 
 def get_signature(text):
     """

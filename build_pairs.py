@@ -1,20 +1,3 @@
-# Results from calibrate_weights.py : 
-# ==================================================================
-# Computing metrics for pair 400/400...
-# >>> Single-metric accuracies (A wins if Δmetric > 0):
-# ROUGE only accuracy: 58.50%
-# BERT only accuracy: 58.75%
-# FACT only accuracy: 63.50%
-# >>> Phase 3A: Logistic Regression for linear weights...
-# LR raw weights (ROUGE, BERT, FACT): [2.81564485 7.07069005 1.2073623 ]
-# LR raw decision accuracy: 65.25%
-# LR projected weights (ROUGE, BERT, FACT): (0.254, 0.637, 0.109)
-# LR projected decision accuracy: 65.25%
-# >>> Phase 3B: Grid Search on simplex for metric weights...
-# ==================================================================
-# Grid Search Accuracy : 67.50%
-# Best Weights from Grid (ROUGE, BERT, FACT) = (0.020, 0.780, 0.200)
-# ==================================================================
 import json
 import os
 import argparse

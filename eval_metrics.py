@@ -57,7 +57,6 @@ def main():
     parser.add_argument("--dpo_path", default="models/dpo0.1")
     parser.add_argument("--data_path", default="data/tldr_cleaned")
     parser.add_argument("--output_file", default="data/metrics/eval_results.json")
-    # Running 500 test samples is enough to see trends; full test set is too slow
     parser.add_argument("--test_samples", type=int, default=500) 
     args = parser.parse_args()
 
