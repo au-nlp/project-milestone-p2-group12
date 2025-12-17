@@ -8,7 +8,7 @@ def main():
     #  Path and environment config
     MODEL_PATH = "models/sft_1/checkpoint"  # SFT model path
     DATA_FILE = "data/preferences/dpo_candidates_new.json"  # Preference pair data path
-    OUTPUT_DIR = "models/dpo0.01"
+    OUTPUT_DIR = "models/dpo0.1"
     LOG_DIR = f"{OUTPUT_DIR}/logs"
 
     print("=== Step 5: DPO Training (Strict Config Match) ===")
